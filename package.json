@@ -4,9 +4,6 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
-    "lint": "turbo run lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types",
     "check": "biome check . --max-diagnostics=none --error-on-warnings",
     "check:fix": "biome check . --fix --max-diagnostics=none --error-on-warnings",
     "typecheck": "turbo run typecheck",
