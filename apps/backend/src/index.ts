@@ -6,4 +6,8 @@ app.get("/", (c) => {
   return c.text("Hello Hono!");
 });
 
+app.get("/test", (c) => {
+  return c.text("Hello from test");
+});
+
 export default app;
