@@ -1,0 +1,270 @@
+openapi: 3.0.3
+info:
+  title: Stalog Auth API
+  description: 認証・プロフィール管理エンドポイント
+  version: 1.0.0
+
+servers:
+  - url: https://api.stalog.workers.dev/v1
+    description: Production (Cloudflare Workers)
+  - url: http://localhost:8787/v1
+    description: Local development
+
+tags:
+  - name: auth
+    description: 認証・プロフィール管理
+
+# 認証が必要なエンドポイントにはこのスキームを適用
+security:
+  - bearerAuth: []
+
+# -------------------------------------------------------
+# Paths
+# -------------------------------------------------------
+paths:
+
+  /auth/signup:
+    post:
+      tags: [auth]
+      summary: ユーザー登録
+      description: |
+        メールアドレスとパスワードで新規ユーザーを登録する。
+        Supabase Auth にユーザーを作成し、DBトリガーで `public.profiles` を自動生成する。
+        `display_name` は `raw_user_meta_data` 経由でトリガーに渡される。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, display_name]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  minLength: 8
+                  example: password123
+                display_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                  example: Ryutaro
+      responses:
+        "201":
+          description: 登録成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: ログイン
+      description: |
+        メールアドレスとパスワードで認証し、JWT を返す。
+        返却された `access_token` を以降のリクエストの `Authorization: Bearer` ヘッダーに付与する。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  example: password123
+      responses:
+        "200":
+          description: ログイン成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: ログアウト
+      description: Supabase Auth のセッションを無効化する。
+      responses:
+        "204":
+          description: ログアウト成功
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: プロフィール取得
+      description: ログイン中のユーザー自身のプロフィールを返す。
+      responses:
+        "200":
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    patch:
+      tags: [auth]
+      summary: プロフィール更新
+      description: |
+        `display_name` を更新する。
+        `public.profiles` テーブルを直接 UPDATE する。
+        更新時に `updated_at` を現在時刻にセットする。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [display_name]
+              properties:
+                display_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                  example: Ryutaro
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      tags: [auth]
+      summary: アカウント削除（退会）
+      description: |
+        `auth.users` からユーザーを削除する。
+        `ON DELETE CASCADE` により `profiles` / `categories` / `study_sessions` など
+        紐づく全データが自動削除される。
+        この操作は取り消せない。
+      responses:
+        "204":
+          description: 削除成功
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+# -------------------------------------------------------
+# Components
+# -------------------------------------------------------
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Supabase Auth から発行される JWT。
+        `/auth/login` または `/auth/signup` のレスポンスの `access_token` を使用する。
+
+  responses:
+    BadRequest:
+      description: リクエストが不正（バリデーションエラー等）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: BAD_REQUEST
+            message: display_name は必須です
+    Unauthorized:
+      description: 認証エラー（トークン未指定・期限切れ等）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: UNAUTHORIZED
+            message: 認証が必要です
+    Conflict:
+      description: 競合（メールアドレス重複等）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: CONFLICT
+            message: このメールアドレスは既に使用されています
+
+  schemas:
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: マシンリーダブルなエラーコード
+          example: UNAUTHORIZED
+        message:
+          type: string
+          description: 人間向けのエラーメッセージ
+          example: 認証が必要です
+
+    Profile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: auth.users.id と同一
+          example: a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+        email:
+          type: string
+          format: email
+          description: Supabase Auth から取得
+          example: user@example.com
+        display_name:
+          type: string
+          example: Ryutaro
+        updated_at:
+          type: string
+          format: date-time
+          example: "2026-03-18T12:00:00Z"
+
+    AuthResponse:
+      type: object
+      description: 認証成功時のレスポンス
+      properties:
+        access_token:
+          type: string
+          description: Supabase Auth が発行する JWT
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        token_type:
+          type: string
+          example: bearer
+        expires_in:
+          type: integer
+          description: トークンの有効期限（秒）
+          example: 3600
+        user:
+          $ref: "#/components/schemas/Profile"
