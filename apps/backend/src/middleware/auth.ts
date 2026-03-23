@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "hono";
 import type { Env } from "../lib/supabase";
 import { createSupabaseClient } from "../lib/supabase";
 
-type Variables = {
+export type Variables = {
   userId: string;
   accessToken: string;
 };
